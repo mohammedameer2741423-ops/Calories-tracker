@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2563eb"><link rel="manifest" href="manifest.json">
+<title>Calorie Tracker</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#172033;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:720px;margin:auto;padding:18px 16px 90px}.card{background:#fff;border-radius:20px;padding:18px;margin:12px 0;box-shadow:0 4px 20px #0000000b}
+h1,h2,h3{margin-top:0}.muted{color:#667085}.row{display:flex;gap:9px;flex-wrap:wrap}
+input,button{font:inherit;border-radius:12px;padding:11px;border:1px solid #d0d5dd}input{min-width:0;flex:1}
+button{border:0;background:#2563eb;color:white;font-weight:600;cursor:pointer}.secondary{background:#eef2f7;color:#172033}
+.stat{font-size:38px;font-weight:750}.progress{height:14px;background:#e7ebf2;border-radius:20px;overflow:hidden}.bar{height:100%;width:0;background:#35a36b;transition:.2s}
+.item{display:flex;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid #edf0f4}.item:last-child{border:0}
+.small{font-size:13px}.preview{display:none;width:100%;max-height:260px;object-fit:cover;border-radius:14px;margin:12px 0}
+.install{display:none}.danger{background:#dc3545}.tabs{display:flex;gap:8px;margin:12px 0}.tabs button{flex:1}.date{text-align:center;font-weight:700}
+</style>
+</head>
+<body>
+<main>
+<section class="card">
+<h1>🍎 Calorie Tracker</h1><div class="muted">Your personal calorie diary</div>
+<div class="tabs"><button class="secondary" onclick="changeDay(-1)">← Previous</button><div class="date" id="date"></div><button class="secondary" onclick="changeDay(1)">Next →</button></div>
+<button id="install" class="install" onclick="installApp()">📲 Install app</button>
+</section>
+
+<section class="card">
+<h3>Daily target</h3>
+<div class="row"><input id="target" type="number" min="1" placeholder="2000"><button onclick="setTarget()">Save</button></div>
+<p><span class="stat" id="net">0</span> kcal net</p>
+<div class="progress"><div class="bar" id="bar"></div></div>
+<p class="muted" id="remaining"></p>
+<p class="small muted" id="summary"></p>
+</section>
+
+<section class="card">
+<h3>🍽️ Add food</h3>
+<input id="photo" type="file" accept="image/*" capture="environment">
+<img id="preview" class="preview">
+<p class="small muted">Photo recognition is not built into this offline version yet. Enter/confirm the food and calories after taking a photo.</p>
+<div class="row"><input id="food" placeholder="Food name"><input id="calories" type="number" min="0" placeholder="kcal"><button onclick="addFood()">Add</button></div>
+<div id="foods"></div>
+</section>
+
+<section class="card">
+<h3>🏃 Add exercise</h3>
+<div class="row"><input id="exercise" placeholder="Exercise"><input id="burned" type="number" min="0" placeholder="kcal burned"><button onclick="addExercise()">Add</button></div>
+<div id="exercises"></div>
+</section>
+
+<section class="card">
+<h3>📅 History</h3><div id="history"></div>
+</section>
+
+<button class="danger" onclick="clearDay()">Clear selected day</button>
+</main>
+<script>
+const DB='CalorieTrackerDB', STORE='app'; let db, day=localDate(); let target=2000;
+function localDate(d=new Date()){return d.toLocaleDateString('en-CA')}
+function openDB(){return new Promise((res,rej)=>{let r=indexedDB.open(DB,1);r.onupgradeneeded=()=>r.result.createObjectStore(STORE);r.onsuccess=()=>{db=r.result;res()};r.onerror=()=>rej(r.error)})}
+function get(k){return new Promise((res,rej)=>{let r=db.transaction(STORE).objectStore(STORE).get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+function put(k,v){return new Promise((res,rej)=>{let r=db.transaction(STORE,'readwrite').objectStore(STORE).put(v,k);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+async function state(){return await get(day)||{foods:[],exercises:[]}}
+async function init(){await openDB();target=await get('target')||2000;document.getElementById('target').value=target;await render();await renderHistory()}
+async function setTarget(){target=Math.max(1,+document.getElementById('target').value||2000);await put('target',target);render()}
+async function addFood(){let n=food.value.trim(),k=+calories.value;if(!n||k<0)return alert('Enter food and calories.');let s=await state();s.foods.push({n,k});await put(day,s);food.value='';calories.value='';render();renderHistory()}
+async function addExercise(){let n=exercise.value.trim(),k=+burned.value;if(!n||k<0)return alert('Enter exercise and calories.');let s=await state();s.exercises.push({n,k});await put(day,s);exercise.value='';burned.value='';render();renderHistory()}
+async function remove(type,i){let s=await state();s[type].splice(i,1);await put(day,s);render();renderHistory()}
+async function render(){let s=await state(),eat=s.foods.reduce((a,x)=>a+x.k,0),burn=s.exercises.reduce((a,x)=>a+x.k,0),net=eat-burn;
+date.textContent=new Date(day+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
+document.getElementById('net').textContent=net;remaining.textContent=net<=target?`${target-net} kcal remaining`:`${net-target} kcal over target`;
+bar.style.width=Math.min(100,Math.max(0,net/target*100))+'%';summary.textContent=`Food: ${eat} kcal • Exercise: ${burn} kcal`;
+foods.innerHTML=s.foods.length?s.foods.map((x,i)=>`<div class="item"><span>${esc(x.n)}</span><b>${x.k} kcal <button class="secondary" onclick="remove('foods',${i})">×</button></b></div>`).join(''):'<p class="muted">No food entries.</p>';
+exercises.innerHTML=s.exercises.length?s.exercises.map((x,i)=>`<div class="item"><span>${esc(x.n)}</span><b>-${x.k} kcal <button class="secondary" onclick="remove('exercises',${i})">×</button></b></div>`).join(''):'<p class="muted">No exercise entries.</p>'}
+async function renderHistory(){let h=[];for(let i=0;i<30;i++){let d=new Date();d.setDate(d.getDate()-i);let k=localDate(d),s=await get(k);if(s&&(s.foods.length||s.exercises.length)){let e=s.foods.reduce((a,x)=>a+x.k,0),b=s.exercises.reduce((a,x)=>a+x.k,0);h.push(`<div class="item"><span>${new Date(k+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'})}</span><b>${e-b} kcal</b></div>`)}}history.innerHTML=h.join('')||'<p class="muted">No previous entries yet.</p>'}
+function changeDay(n){let d=new Date(day+'T12:00:00');d.setDate(d.getDate()+n);day=localDate(d);render()}
+async function clearDay(){if(confirm('Clear this day?')){await put(day,{foods:[],exercises:[]});render();renderHistory()}}
+function esc(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+let deferred;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;install.style.display='block'})
+async function installApp(){if(deferred){deferred.prompt();deferred=null}}
+if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js'));
+photo.addEventListener('change',e=>{let f=e.target.files[0];if(f){preview.src=URL.createObjectURL(f);preview.style.display='block'}})
+init();
+</script>
+</body></html>
